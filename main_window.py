@@ -6,7 +6,7 @@ import copy
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QRadioButton, QButtonGroup, QTableWidget, QTableWidgetItem,
-    QFileDialog, QLineEdit, QMessageBox, QHeaderView
+    QFileDialog, QLineEdit, QMessageBox, QHeaderView, QSplitter
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -15,7 +15,9 @@ from typing import List, Optional
 from models import FilePattern, FileInfo
 from pattern_analyzer import analyze_files, extract_pattern
 from file_renamer import apply_pattern, remove_text, add_text, execute_rename
-from file_system import get_files_in_folder, check_conflicts, validate_filename
+from file_system import get_files_in_folder, check_conflicts, validate_filename, get_first_archive_file
+from cover_image_widget import CoverImageWidget
+from image_loader import extract_cover_from_zip
 
 
 class MainWindow(QMainWindow):
@@ -34,7 +36,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """UI 초기화"""
         self.setWindowTitle("엔쪼 스마트리네임")
-        self.setGeometry(100, 100, 1000, 750)
+        self.setGeometry(100, 100, 1200, 750)  # 너비 1000→1200으로 증가
 
         # 전체 폰트 설정 (개선 1: 맑은 고딕, 개선 2: 10pt)
         app_font = QFont("맑은 고딕", 10)
@@ -64,21 +66,34 @@ class MainWindow(QMainWindow):
 
         folder_layout.addWidget(self.folder_button)
         folder_layout.addWidget(self.folder_label, 1)  # stretch factor
-        main_layout.addLayout(folder_layout)
+        main_layout.addLayout(folder_layout, 0)  # stretch=0: 고정 크기
 
-        # 2. 패턴 선택 영역
+        # 2. 이미지 + 컨텐츠 영역 (QSplitter 사용) - 가변 영역
+        content_splitter = QSplitter(Qt.Horizontal)
+
+        # 2-1. 왼쪽: 표지 이미지
+        self.cover_image_widget = CoverImageWidget()
+        content_splitter.addWidget(self.cover_image_widget)
+
+        # 2-2. 오른쪽: 패턴 선택 + 미리보기 테이블
+        right_widget = QWidget()
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(15)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 패턴 선택 영역 (고정 크기)
         pattern_label = QLabel("검출된 패턴:")
         pattern_label.setFont(QFont("맑은 고딕", 12, QFont.Bold))  # 제목 강조
-        main_layout.addWidget(pattern_label)
+        right_layout.addWidget(pattern_label, 0)  # stretch=0: 고정
 
         self.pattern_button_group = QButtonGroup()
         self.pattern_layout = QVBoxLayout()
-        main_layout.addLayout(self.pattern_layout)
+        right_layout.addLayout(self.pattern_layout, 0)  # stretch=0: 고정
 
-        # 3. 미리보기 테이블
+        # 미리보기 테이블 (가변 크기)
         preview_label = QLabel("미리보기:")
         preview_label.setFont(QFont("맑은 고딕", 12, QFont.Bold))  # 제목 강조
-        main_layout.addWidget(preview_label)
+        right_layout.addWidget(preview_label, 0)  # stretch=0: 고정
 
         self.preview_table = QTableWidget()
         self.preview_table.setColumnCount(2)
@@ -105,14 +120,23 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        main_layout.addWidget(self.preview_table)
+        right_layout.addWidget(self.preview_table, 1)  # stretch=1: 가변 크기 (세로 확장)
 
-        # 4. 추가 편집 영역
+        right_widget.setLayout(right_layout)
+        content_splitter.addWidget(right_widget)
+
+        # Splitter 초기 크기 비율 설정 (1:5 = 이미지:컨텐츠)
+        content_splitter.setSizes([200, 1000])
+
+        # Splitter를 메인 레이아웃에 추가 (가변 영역)
+        main_layout.addWidget(content_splitter, 1)  # stretch=1: 세로 확장
+
+        # 3. 추가 편집 영역 (고정 크기)
         edit_label = QLabel("추가 편집:")
         edit_label.setFont(QFont("맑은 고딕", 12, QFont.Bold))  # 제목 강조
-        main_layout.addWidget(edit_label)
+        main_layout.addWidget(edit_label, 0)  # stretch=0: 고정 크기
 
-        # 4-1. 제거 기능
+        # 3-1. 제거 기능
         remove_layout = QHBoxLayout()
         remove_layout.setSpacing(10)  # 개선 5: 간격
 
@@ -122,14 +146,17 @@ class MainWindow(QMainWindow):
         self.remove_input = QLineEdit()
         self.remove_input.setPlaceholderText("제거할 텍스트 입력")
         self.remove_input.setMinimumHeight(30)
+        self.remove_input.setMaximumHeight(30)  # 최대 높이 고정
 
         self.remove_button = QPushButton("적용")
         self.remove_button.setMinimumHeight(30)
+        self.remove_button.setMaximumHeight(30)  # 최대 높이 고정
         self.remove_button.setMinimumWidth(80)
         self.remove_button.clicked.connect(self.remove_text_action)
 
         self.remove_undo_button = QPushButton("취소")
         self.remove_undo_button.setMinimumHeight(30)
+        self.remove_undo_button.setMaximumHeight(30)  # 최대 높이 고정
         self.remove_undo_button.setMinimumWidth(80)
         self.remove_undo_button.setEnabled(False)  # 초기에는 비활성화
         self.remove_undo_button.clicked.connect(self.undo_action)
@@ -138,9 +165,9 @@ class MainWindow(QMainWindow):
         remove_layout.addWidget(self.remove_input, 1)
         remove_layout.addWidget(self.remove_button)
         remove_layout.addWidget(self.remove_undo_button)
-        main_layout.addLayout(remove_layout)
+        main_layout.addLayout(remove_layout, 0)  # stretch=0: 고정 크기
 
-        # 4-2. 추가 기능
+        # 3-2. 추가 기능
         add_layout = QHBoxLayout()
         add_layout.setSpacing(10)  # 개선 5: 간격
 
@@ -150,6 +177,7 @@ class MainWindow(QMainWindow):
         self.add_input = QLineEdit()
         self.add_input.setPlaceholderText("추가할 텍스트 입력")
         self.add_input.setMinimumHeight(30)
+        self.add_input.setMaximumHeight(30)  # 최대 높이 고정
 
         # 앞/뒤 선택
         self.add_front_radio = QRadioButton("앞")
@@ -158,11 +186,13 @@ class MainWindow(QMainWindow):
 
         self.add_button = QPushButton("적용")
         self.add_button.setMinimumHeight(30)
+        self.add_button.setMaximumHeight(30)  # 최대 높이 고정
         self.add_button.setMinimumWidth(80)
         self.add_button.clicked.connect(self.add_text_action)
 
         self.add_undo_button = QPushButton("취소")
         self.add_undo_button.setMinimumHeight(30)
+        self.add_undo_button.setMaximumHeight(30)  # 최대 높이 고정
         self.add_undo_button.setMinimumWidth(80)
         self.add_undo_button.setEnabled(False)  # 초기에는 비활성화
         self.add_undo_button.clicked.connect(self.undo_action)
@@ -173,14 +203,15 @@ class MainWindow(QMainWindow):
         add_layout.addWidget(self.add_back_radio)
         add_layout.addWidget(self.add_button)
         add_layout.addWidget(self.add_undo_button)
-        main_layout.addLayout(add_layout)
+        main_layout.addLayout(add_layout, 0)  # stretch=0: 고정 크기
 
-        # 5. 하단 버튼
+        # 4. 하단 버튼 (고정 크기)
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)  # 개선 5: 버튼 간격
 
         self.execute_button = QPushButton("파일명 변경 실행")
         self.execute_button.setMinimumHeight(40)
+        self.execute_button.setMaximumHeight(40)  # 최대 높이 고정
         self.execute_button.setStyleSheet("""
             QPushButton {
                 background-color: #0078d4;
@@ -198,7 +229,7 @@ class MainWindow(QMainWindow):
         self.execute_button.clicked.connect(self.execute_rename_action)
 
         button_layout.addWidget(self.execute_button)
-        main_layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout, 0)  # stretch=0: 고정 크기
 
     def select_folder(self):
         """폴더 선택"""
@@ -216,6 +247,7 @@ class MainWindow(QMainWindow):
 
         if not file_paths:
             QMessageBox.warning(self, "경고", "폴더에 파일이 없습니다.")
+            self.cover_image_widget.clear()  # 이미지 제거
             return
 
         # 파일명만 추출
@@ -231,6 +263,7 @@ class MainWindow(QMainWindow):
         # 패턴이 없으면 경고
         if not self.representative_patterns:
             QMessageBox.warning(self, "경고", "파일명 패턴을 찾을 수 없습니다.")
+            self.cover_image_widget.clear()  # 이미지 제거
             return
 
         # 패턴 라디오 버튼 생성
@@ -238,6 +271,36 @@ class MainWindow(QMainWindow):
 
         # 미리보기 업데이트
         self.refresh_preview()
+
+        # 표지 이미지 로드
+        self.load_cover_image(file_paths)
+
+    def load_cover_image(self, file_paths: list):
+        """
+        첫 번째 ZIP 파일에서 표지 이미지 추출 및 표시
+
+        Args:
+            file_paths: 파일 경로 목록 (이미 정렬됨)
+        """
+        # 첫 번째 ZIP 파일 찾기
+        first_zip = get_first_archive_file(file_paths)
+
+        if first_zip is None:
+            # ZIP 파일이 없으면 빈 공간
+            self.cover_image_widget.clear()
+            return
+
+        try:
+            # ZIP에서 표지 추출
+            cover_img = extract_cover_from_zip(first_zip, max_size=(500, 700))
+
+            # 위젯에 표시
+            self.cover_image_widget.set_pil_image(cover_img)
+
+        except Exception as e:
+            # 오류 발생 시 빈 공간
+            print(f"표지 로드 실패: {e}")
+            self.cover_image_widget.clear()
 
     def create_pattern_buttons(self):
         """패턴 선택 라디오 버튼 생성"""

@@ -3,7 +3,7 @@
 """
 import os
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from models import FileInfo
 
 
@@ -93,6 +93,23 @@ def check_conflicts(file_infos: List[FileInfo]) -> Tuple[bool, List[str]]:
             new_names[new_name_lower] = file_info
 
     return len(conflicts) == 0, conflicts
+
+
+def get_first_archive_file(file_paths: List[str]) -> Optional[str]:
+    """
+    파일 목록에서 첫 번째 압축 파일 경로 반환
+
+    Args:
+        file_paths: 파일 경로 목록 (이미 자연스럽게 정렬됨)
+
+    Returns:
+        첫 번째 ZIP 파일 경로 또는 None
+    """
+    for file_path in file_paths:
+        if file_path.lower().endswith('.zip'):
+            return file_path
+
+    return None
 
 
 def rename_file(old_path: str, new_path: str) -> Tuple[bool, str]:

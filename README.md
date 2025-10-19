@@ -1,4 +1,4 @@
-# 엔쪼 스마트리네임 (NZZO Smart Rename)
+# 엔쪼 스마트리네임 (Enterjoy Smart Rename)
 
 파일명의 패턴을 자동으로 분석하여 일괄 변경할 수 있는 스마트 파일명 변경 프로그램입니다.
 
@@ -9,6 +9,7 @@
 3. **텍스트 제거**: 특정 문자열을 일괄 제거 (예: `[공금]`, `[절공]` 등)
 4. **텍스트 추가**: 파일명 앞/뒤에 텍스트 추가
 5. **미리보기**: 실제 변경 전 미리보기 제공
+6. **표지 이미지 미리보기**: ZIP 압축 파일의 첫 번째 이미지를 자동으로 표시 (만화책/잡지 등)
 
 ## 사용 방법
 
@@ -51,6 +52,8 @@ pyinstaller --onefile --noconsole --name=Enterjoy_SmartRename app.py
 FileName_Changer/
 ├── app.py                    # 메인 진입점
 ├── main_window.py            # GUI 구현
+├── cover_image_widget.py     # 표지 이미지 위젯
+├── image_loader.py           # 이미지 로더
 ├── pattern_analyzer.py       # 패턴 분석 엔진
 ├── file_renamer.py           # 파일명 변경 로직
 ├── file_system.py            # 파일 시스템 유틸리티
