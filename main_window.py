@@ -30,7 +30,8 @@ class MainWindow(QMainWindow):
         self.current_folder: str = ""
 
         # Undo 기능을 위한 히스토리 (이전 상태 저장)
-        self.previous_file_infos: Optional[List[FileInfo]] = None
+        self.previous_file_infos_remove: Optional[List[FileInfo]] = None
+        self.previous_file_infos_add: Optional[List[FileInfo]] = None
 
         # 이미지 캐시 (파일 경로 -> PIL.Image)
         self.image_cache = {}
@@ -61,7 +62,7 @@ class MainWindow(QMainWindow):
         folder_container.setStyleSheet("""
             QWidget {
                 background-color: #f8f9fa;
-                border: 2px solid #dee2e6;
+                border: none;
                 border-radius: 8px;
                 padding: 12px;
             }
@@ -210,27 +211,28 @@ class MainWindow(QMainWindow):
         """)
 
         edit_main_layout = QVBoxLayout()
-        edit_main_layout.setSpacing(12)
+        edit_main_layout.setSpacing(2)
         edit_main_layout.setContentsMargins(0, 0, 0, 0)
 
         # 4-1. 자릿수 변경 기능 (박스)
         digit_box = QWidget()
+        digit_box.setObjectName("digit_box")
         digit_box.setStyleSheet("""
-            QWidget {
+            QWidget#digit_box {
                 background-color: white;
-                border: 1px solid #ced4da;
-                border-radius: 6px;
-                padding: 12px;
+                border: none;
+                border-radius: 0px;
             }
         """)
 
         digit_layout = QHBoxLayout()
         digit_layout.setSpacing(10)
-        digit_layout.setContentsMargins(0, 0, 0, 0)
+        digit_layout.setContentsMargins(12, 0, 12, 0)
 
         digit_label = QLabel("📊 자릿수:")
         digit_label.setMinimumWidth(80)
         digit_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        digit_label.setStyleSheet("border: none; background: transparent;")
 
         # 자릿수 선택 라디오 버튼
         self.digit_button_group = QButtonGroup()
@@ -260,32 +262,49 @@ class MainWindow(QMainWindow):
         self.digit_2_radio.setFont(QFont("맑은 고딕", 10))
         self.digit_3_radio.setFont(QFont("맑은 고딕", 10))
 
-        # 라디오 버튼 스타일
+        # 라디오 버튼 스타일 (테두리 없이 체크만 보이도록)
         radio_style = """
             QRadioButton {
                 spacing: 5px;
-                padding: 5px;
+                padding: 8px 12px;
                 color: #212529;
+                border: none;
+                background: transparent;
+                min-width: 60px;
             }
             QRadioButton::indicator {
                 width: 16px;
                 height: 16px;
+                border: none;
+                background: transparent;
+                subcontrol-position: left center;
+            }
+            QRadioButton::indicator:unchecked {
+                image: url(none);
+                width: 16px;
+                height: 16px;
+                border: 2px solid #ced4da;
+                border-radius: 8px;
+                background: white;
+            }
+            QRadioButton::indicator:checked {
+                image: url(none);
+                width: 16px;
+                height: 16px;
+                border: 2px solid #0078d4;
+                border-radius: 8px;
+                background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 #0078d4, stop:0.5 #0078d4, stop:0.51 white, stop:1 white);
             }
         """
+
         self.digit_1_radio.setStyleSheet(radio_style)
         self.digit_2_radio.setStyleSheet(radio_style)
         self.digit_3_radio.setStyleSheet(radio_style)
-
-        # 설명 텍스트 추가
-        digit_hint_label = QLabel("💡 선택 시 즉시 적용됩니다")
-        digit_hint_label.setFont(QFont("맑은 고딕", 9))
-        digit_hint_label.setStyleSheet("color: #6c757d;")
 
         digit_layout.addWidget(digit_label)
         digit_layout.addWidget(self.digit_1_radio)
         digit_layout.addWidget(self.digit_2_radio)
         digit_layout.addWidget(self.digit_3_radio)
-        digit_layout.addWidget(digit_hint_label)
         digit_layout.addStretch()
 
         digit_box.setLayout(digit_layout)
@@ -297,19 +316,34 @@ class MainWindow(QMainWindow):
         remove_box.setStyleSheet("""
             QWidget#remove_box {
                 background-color: white;
-                border: 1px solid #ced4da;
-                border-radius: 6px;
-                padding: 12px;
+                border: none;
+                border-radius: 0px;
             }
         """)
 
         remove_layout = QHBoxLayout()
         remove_layout.setSpacing(8)
-        remove_layout.setContentsMargins(0, 0, 0, 0)
+        remove_layout.setContentsMargins(12, 0, 12, 0)
+
+        # "제거" 라벨과 입력창을 하나의 컨테이너로 묶기
+        remove_input_container = QWidget()
+        remove_input_container.setObjectName("remove_input_container")
+        remove_input_container.setStyleSheet("""
+            QWidget#remove_input_container {
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                background-color: #ffffff;
+            }
+        """)
+
+        remove_input_inner_layout = QHBoxLayout()
+        remove_input_inner_layout.setSpacing(0)
+        remove_input_inner_layout.setContentsMargins(8, 0, 8, 0)
 
         remove_label = QLabel("🗑️ 제거:")
         remove_label.setMinimumWidth(80)
         remove_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        remove_label.setStyleSheet("border: none; background: transparent;")
 
         self.remove_input = QLineEdit()
         self.remove_input.setPlaceholderText("제거할 텍스트 입력")
@@ -331,7 +365,11 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        self.remove_button = QPushButton("✓ 적용")
+        remove_input_inner_layout.addWidget(remove_label)
+        remove_input_inner_layout.addWidget(self.remove_input, 1)
+        remove_input_container.setLayout(remove_input_inner_layout)
+
+        self.remove_button = QPushButton("✔️ 적용")
         self.remove_button.setMinimumHeight(35)
         self.remove_button.setStyleSheet("""
             QPushButton {
@@ -351,7 +389,7 @@ class MainWindow(QMainWindow):
         """)
         self.remove_button.clicked.connect(self.remove_text_action)
 
-        self.remove_undo_button = QPushButton("↩ 취소")
+        self.remove_undo_button = QPushButton("❌ 취소")
         self.remove_undo_button.setMinimumHeight(35)
         self.remove_undo_button.setStyleSheet("""
             QPushButton {
@@ -374,10 +412,9 @@ class MainWindow(QMainWindow):
             }
         """)
         self.remove_undo_button.setEnabled(False)
-        self.remove_undo_button.clicked.connect(self.undo_action)
+        self.remove_undo_button.clicked.connect(self.undo_remove_action)
 
-        remove_layout.addWidget(remove_label)
-        remove_layout.addWidget(self.remove_input, 1)
+        remove_layout.addWidget(remove_input_container, 1)
         remove_layout.addWidget(self.remove_button)
         remove_layout.addWidget(self.remove_undo_button)
 
@@ -390,19 +427,34 @@ class MainWindow(QMainWindow):
         add_box.setStyleSheet("""
             QWidget#add_box {
                 background-color: white;
-                border: 1px solid #ced4da;
-                border-radius: 6px;
-                padding: 12px;
+                border: none;
+                border-radius: 0px;
             }
         """)
 
         add_layout = QHBoxLayout()
         add_layout.setSpacing(8)
-        add_layout.setContentsMargins(0, 0, 0, 0)
+        add_layout.setContentsMargins(12, 0, 12, 0)
+
+        # "추가" 라벨과 입력창을 하나의 컨테이너로 묶기
+        add_input_container = QWidget()
+        add_input_container.setObjectName("add_input_container")
+        add_input_container.setStyleSheet("""
+            QWidget#add_input_container {
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                background-color: #ffffff;
+            }
+        """)
+
+        add_input_inner_layout = QHBoxLayout()
+        add_input_inner_layout.setSpacing(0)
+        add_input_inner_layout.setContentsMargins(8, 0, 8, 0)
 
         add_label = QLabel("➕ 추가:")
         add_label.setMinimumWidth(80)
         add_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        add_label.setStyleSheet("border: none; background: transparent;")
 
         self.add_input = QLineEdit()
         self.add_input.setPlaceholderText("추가할 텍스트 입력")
@@ -424,16 +476,20 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        add_input_inner_layout.addWidget(add_label)
+        add_input_inner_layout.addWidget(self.add_input, 1)
+        add_input_container.setLayout(add_input_inner_layout)
+
         # 앞/뒤 선택
-        self.add_front_radio = QRadioButton("⬅ 앞")
-        self.add_back_radio = QRadioButton("뒤 ➡")
+        self.add_front_radio = QRadioButton("앞")
+        self.add_back_radio = QRadioButton("뒤")
         self.add_front_radio.setChecked(True)
         self.add_front_radio.setFont(QFont("맑은 고딕", 10))
         self.add_back_radio.setFont(QFont("맑은 고딕", 10))
         self.add_front_radio.setStyleSheet(radio_style)
         self.add_back_radio.setStyleSheet(radio_style)
 
-        self.add_button = QPushButton("✓ 적용")
+        self.add_button = QPushButton("✔️ 적용")
         self.add_button.setMinimumHeight(35)
         self.add_button.setStyleSheet("""
             QPushButton {
@@ -453,7 +509,7 @@ class MainWindow(QMainWindow):
         """)
         self.add_button.clicked.connect(self.add_text_action)
 
-        self.add_undo_button = QPushButton("↩ 취소")
+        self.add_undo_button = QPushButton("❌ 취소")
         self.add_undo_button.setMinimumHeight(35)
         self.add_undo_button.setStyleSheet("""
             QPushButton {
@@ -476,12 +532,19 @@ class MainWindow(QMainWindow):
             }
         """)
         self.add_undo_button.setEnabled(False)
-        self.add_undo_button.clicked.connect(self.undo_action)
+        self.add_undo_button.clicked.connect(self.undo_add_action)
 
-        add_layout.addWidget(add_label)
-        add_layout.addWidget(self.add_input, 1)
-        add_layout.addWidget(self.add_front_radio)
-        add_layout.addWidget(self.add_back_radio)
+        # 앞/뒤 버튼을 하나의 위젯으로 묶어서 간격 조정
+        position_widget = QWidget()
+        position_layout = QHBoxLayout()
+        position_layout.setSpacing(2)
+        position_layout.setContentsMargins(0, 0, 0, 0)
+        position_layout.addWidget(self.add_front_radio)
+        position_layout.addWidget(self.add_back_radio)
+        position_widget.setLayout(position_layout)
+
+        add_layout.addWidget(add_input_container, 1)
+        add_layout.addWidget(position_widget)
         add_layout.addWidget(self.add_button)
         add_layout.addWidget(self.add_undo_button)
 
@@ -506,7 +569,7 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.execute_button = QPushButton("🚀 파일명 변경 실행")
+        self.execute_button = QPushButton("파일명 변경 실행")
         self.execute_button.setMinimumHeight(50)
         self.execute_button.setFont(QFont("맑은 고딕", 11, QFont.Bold))
         self.execute_button.setStyleSheet("""
@@ -737,18 +800,35 @@ class MainWindow(QMainWindow):
 
             self.preview_table.setItem(i, 1, new_item)
 
-    def undo_action(self):
-        """마지막 작업 취소"""
-        if self.previous_file_infos is None:
+    def undo_remove_action(self):
+        """제거 작업 취소"""
+        if self.previous_file_infos_remove is None:
             QMessageBox.warning(self, "경고", "취소할 작업이 없습니다.")
             return
 
         # 이전 상태로 복원
-        self.file_infos = self.previous_file_infos
-        self.previous_file_infos = None
+        self.file_infos = self.previous_file_infos_remove
+        self.previous_file_infos_remove = None
 
-        # 취소 버튼 비활성화
+        # 제거 취소 버튼 비활성화
         self.remove_undo_button.setEnabled(False)
+
+        # 미리보기 업데이트
+        self.refresh_preview()
+
+        QMessageBox.information(self, "완료", "이전 상태로 복원되었습니다.")
+
+    def undo_add_action(self):
+        """추가 작업 취소"""
+        if self.previous_file_infos_add is None:
+            QMessageBox.warning(self, "경고", "취소할 작업이 없습니다.")
+            return
+
+        # 이전 상태로 복원
+        self.file_infos = self.previous_file_infos_add
+        self.previous_file_infos_add = None
+
+        # 추가 취소 버튼 비활성화
         self.add_undo_button.setEnabled(False)
 
         # 미리보기 업데이트
@@ -788,14 +868,13 @@ class MainWindow(QMainWindow):
             return
 
         # 이전 상태 저장
-        self.previous_file_infos = copy.deepcopy(self.file_infos)
+        self.previous_file_infos_remove = copy.deepcopy(self.file_infos)
 
         # 텍스트 제거 적용
         self.file_infos = remove_text(self.file_infos, text)
 
-        # 취소 버튼 활성화
+        # 제거 취소 버튼만 활성화
         self.remove_undo_button.setEnabled(True)
-        self.add_undo_button.setEnabled(True)
 
         # 미리보기 업데이트
         self.refresh_preview()
@@ -809,14 +888,13 @@ class MainWindow(QMainWindow):
             return
 
         # 이전 상태 저장
-        self.previous_file_infos = copy.deepcopy(self.file_infos)
+        self.previous_file_infos_add = copy.deepcopy(self.file_infos)
 
         # 텍스트 추가 적용
         position = "front" if self.add_front_radio.isChecked() else "back"
         self.file_infos = add_text(self.file_infos, text, position)
 
-        # 취소 버튼 활성화
-        self.remove_undo_button.setEnabled(True)
+        # 추가 취소 버튼만 활성화
         self.add_undo_button.setEnabled(True)
 
         # 미리보기 업데이트
