@@ -14,7 +14,7 @@ from typing import List, Optional
 
 from models import FilePattern, FileInfo
 from pattern_analyzer import analyze_files, extract_pattern
-from file_renamer import apply_pattern, remove_text, add_text, execute_rename
+from file_renamer import apply_pattern, remove_text, add_text, execute_rename, apply_custom_pattern
 from file_system import get_files_in_folder, check_conflicts, validate_filename, get_first_archive_file
 from cover_image_widget import CoverImageWidget
 from image_loader import extract_cover_from_zip
@@ -32,6 +32,8 @@ class MainWindow(QMainWindow):
         # Undo 기능을 위한 히스토리 (이전 상태 저장)
         self.previous_file_infos_remove: Optional[List[FileInfo]] = None
         self.previous_file_infos_add: Optional[List[FileInfo]] = None
+        self.previous_file_infos_pattern: Optional[List[FileInfo]] = None
+        self.previous_pattern_text: Optional[str] = None  # 패턴 편집 이전 텍스트
 
         # 이미지 캐시 (파일 경로 -> PIL.Image)
         self.image_cache = {}
@@ -212,8 +214,9 @@ class MainWindow(QMainWindow):
         # 개선 3: 테이블 행 높이 증가
         self.preview_table.verticalHeader().setDefaultSectionSize(35)
 
-        # 테이블 선택 이벤트 연결
+        # 테이블 선택 이벤트 연결 (마우스 클릭 + 키보드 방향키)
         self.preview_table.itemClicked.connect(self.on_table_item_clicked)
+        self.preview_table.currentItemChanged.connect(self.on_table_current_item_changed)
 
         # 드래그 앤 드롭 이벤트 연결
         self.preview_table.folder_dropped.connect(self.on_folder_dropped)
@@ -640,6 +643,116 @@ class MainWindow(QMainWindow):
         add_box.setLayout(add_layout)
         edit_main_layout.addWidget(add_box)
 
+        # 4-4. 패턴 편집 기능 (박스)
+        pattern_edit_box = QWidget()
+        pattern_edit_box.setObjectName("pattern_edit_box")
+        pattern_edit_box.setStyleSheet("""
+            QWidget#pattern_edit_box {
+                background-color: white;
+                border: none;
+                border-radius: 0px;
+            }
+        """)
+
+        pattern_edit_layout = QHBoxLayout()
+        pattern_edit_layout.setSpacing(8)
+        pattern_edit_layout.setContentsMargins(12, 0, 12, 0)
+
+        # "패턴" 라벨과 입력창을 하나의 컨테이너로 묶기
+        pattern_edit_input_container = QWidget()
+        pattern_edit_input_container.setObjectName("pattern_edit_input_container")
+        pattern_edit_input_container.setStyleSheet("""
+            QWidget#pattern_edit_input_container {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+
+        pattern_edit_input_inner_layout = QHBoxLayout()
+        pattern_edit_input_inner_layout.setSpacing(0)
+        pattern_edit_input_inner_layout.setContentsMargins(0, 0, 8, 0)
+
+        pattern_edit_label = QLabel("패턴 :")
+        pattern_edit_label.setMinimumWidth(30)
+        pattern_edit_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        pattern_edit_label.setStyleSheet("border: none; background: transparent;")
+
+        self.pattern_edit_input = QLineEdit()
+        self.pattern_edit_input.setPlaceholderText("패턴 선택 후 편집")
+        self.pattern_edit_input.setMinimumHeight(35)
+        self.pattern_edit_input.setFont(QFont("맑은 고딕", 10))
+        self.pattern_edit_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                background-color: #ffffff;
+                color: #212529;
+            }
+            QLineEdit:focus {
+                border: 2px solid #0078d4;
+            }
+            QLineEdit::placeholder {
+                color: #495057;
+            }
+        """)
+
+        pattern_edit_input_inner_layout.addWidget(pattern_edit_label)
+        pattern_edit_input_inner_layout.addWidget(self.pattern_edit_input, 1)
+        pattern_edit_input_container.setLayout(pattern_edit_input_inner_layout)
+
+        self.pattern_edit_button = QPushButton("✔️ 적용")
+        self.pattern_edit_button.setMinimumHeight(35)
+        self.pattern_edit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
+        self.pattern_edit_button.clicked.connect(self.apply_pattern_edit_action)
+
+        self.pattern_edit_undo_button = QPushButton("❌ 취소")
+        self.pattern_edit_undo_button.setMinimumHeight(35)
+        self.pattern_edit_undo_button.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+            QPushButton:disabled {
+                background-color: #e9ecef;
+                color: #adb5bd;
+            }
+        """)
+        self.pattern_edit_undo_button.setEnabled(False)
+        self.pattern_edit_undo_button.clicked.connect(self.undo_pattern_edit_action)
+
+        pattern_edit_layout.addWidget(pattern_edit_input_container, 1)
+        pattern_edit_layout.addWidget(self.pattern_edit_button)
+        pattern_edit_layout.addWidget(self.pattern_edit_undo_button)
+
+        pattern_edit_box.setLayout(pattern_edit_layout)
+        edit_main_layout.addWidget(pattern_edit_box)
+
         # 편집 컨테이너 완성
         edit_container.setLayout(edit_main_layout)
         main_layout.addWidget(edit_container, 0)
@@ -930,6 +1043,111 @@ class MainWindow(QMainWindow):
         # 미리보기 업데이트
         self.refresh_preview()
 
+        # 패턴 편집 입력창에 선택한 패턴 표시
+        pattern_string = self.pattern_to_string(self.selected_pattern)
+        self.pattern_edit_input.setText(pattern_string)
+
+    def pattern_to_string(self, pattern: FilePattern) -> str:
+        """
+        FilePattern 객체를 편집 가능한 문자열로 변환
+        사용자에게는 제목(prefix + title)만 표시
+        공백도 패턴의 일부로 유지
+
+        Args:
+            pattern: FilePattern 객체
+
+        Returns:
+            제목 문자열 (예: "고래의 아이들은 모래 위에서 노래한다 " - 끝 공백 포함)
+        """
+        result = ""
+
+        # prefix 추가
+        if pattern.prefix:
+            result += pattern.prefix
+
+        # title 추가
+        if pattern.title:
+            result += pattern.title
+
+        # 공백을 포함하여 그대로 반환
+        return result
+
+    def apply_pattern_edit_action(self):
+        """
+        패턴 편집 적용
+        사용자 입력(제목)에 자동으로 권수와 확장자를 추가하여 적용
+        앞뒤 공백도 패턴의 일부로 유지
+        """
+        user_input = self.pattern_edit_input.text()
+
+        # 빈 문자열 체크 (공백만 있는 경우도 허용)
+        if len(user_input) == 0:
+            QMessageBox.warning(self, "경고", "패턴을 입력하세요.")
+            return
+
+        # 선택된 패턴이 없으면 경고
+        if not self.selected_pattern:
+            QMessageBox.warning(self, "경고", "먼저 패턴을 선택해주세요.")
+            return
+
+        # 사용자 입력을 기반으로 완전한 패턴 템플릿 생성
+        # 1. 사용자가 입력한 제목 사용
+        base = user_input
+
+        # 2. 권수 placeholder 추가 (선택된 패턴의 padding_width 사용)
+        padding_width = self.selected_pattern.padding_width
+        if padding_width == 2:
+            number_placeholder = "{number:02d}"
+        elif padding_width == 3:
+            number_placeholder = "{number:03d}"
+        else:
+            number_placeholder = "{number}"
+
+        # 3. suffix 추가 (원본 패턴의 suffix 사용)
+        suffix = self.selected_pattern.suffix if self.selected_pattern.suffix else ""
+
+        # 4. 확장자 추가 (원본 패턴의 extension 사용)
+        extension = self.selected_pattern.extension if self.selected_pattern.extension else ""
+
+        # 완전한 패턴 템플릿 생성
+        pattern_template = base + number_placeholder + suffix + extension
+
+        # 이전 상태 저장 (파일 정보와 입력창 텍스트)
+        self.previous_file_infos_pattern = copy.deepcopy(self.file_infos)
+        self.previous_pattern_text = self.pattern_to_string(self.selected_pattern)
+
+        # 패턴 편집 적용
+        self.file_infos = apply_custom_pattern(self.file_infos, pattern_template)
+
+        # 패턴 편집 취소 버튼만 활성화
+        self.pattern_edit_undo_button.setEnabled(True)
+
+        # 미리보기 업데이트
+        self.refresh_preview()
+
+    def undo_pattern_edit_action(self):
+        """패턴 편집 작업 취소"""
+        if self.previous_file_infos_pattern is None:
+            QMessageBox.warning(self, "경고", "취소할 작업이 없습니다.")
+            return
+
+        # 이전 상태로 복원 (파일 정보와 입력창 텍스트)
+        self.file_infos = self.previous_file_infos_pattern
+        self.previous_file_infos_pattern = None
+
+        # 패턴 편집 입력창도 이전 텍스트로 복원
+        if self.previous_pattern_text is not None:
+            self.pattern_edit_input.setText(self.previous_pattern_text)
+            self.previous_pattern_text = None
+
+        # 패턴 편집 취소 버튼 비활성화
+        self.pattern_edit_undo_button.setEnabled(False)
+
+        # 미리보기 업데이트
+        self.refresh_preview()
+
+        QMessageBox.information(self, "완료", "이전 상태로 복원되었습니다.")
+
     def refresh_preview(self):
         """미리보기 테이블 업데이트"""
         self.preview_table.setRowCount(len(self.file_infos))
@@ -1121,16 +1339,35 @@ class MainWindow(QMainWindow):
                 self.load_cover_image(file_paths)
 
     def on_table_item_clicked(self, item):
-        """테이블 아이템 클릭 시 호출"""
+        """테이블 아이템 클릭 시 호출 (마우스)"""
+        if item is None:
+            return
+        row = item.row()
+        self.update_cover_for_row(row)
+
+    def on_table_current_item_changed(self, current, _previous):
+        """테이블 현재 아이템 변경 시 호출 (키보드 방향키 포함)"""
+        if current is None:
+            return
+        row = current.row()
+        self.update_cover_for_row(row)
+
+    def update_cover_for_row(self, row: int):
+        """
+        지정된 행의 표지 이미지를 업데이트
+
+        Args:
+            row: 테이블 행 번호
+        """
         # 옵션이 활성화되어 있지 않으면 무시
         if not self.preview_all_covers_checkbox.isChecked():
             return
 
-        # 선택된 행의 파일 정보 가져오기
-        row = item.row()
+        # 행 번호 유효성 검사
         if row < 0 or row >= len(self.file_infos):
             return
 
+        # 파일 정보 가져오기
         file_info = self.file_infos[row]
         file_path = file_info.original_path
 
@@ -1191,6 +1428,8 @@ class MainWindow(QMainWindow):
         self.current_folder = ""
         self.previous_file_infos_remove = None
         self.previous_file_infos_add = None
+        self.previous_file_infos_pattern = None
+        self.previous_pattern_text = None
 
         # UI 초기화
         self.folder_label.setText("폴더를 선택하거나 드래그 앤 드롭하세요")
@@ -1216,10 +1455,12 @@ class MainWindow(QMainWindow):
         # 입력창 초기화
         self.remove_input.clear()
         self.add_input.clear()
+        self.pattern_edit_input.clear()
 
         # 취소 버튼 비활성화
         self.remove_undo_button.setEnabled(False)
         self.add_undo_button.setEnabled(False)
+        self.pattern_edit_undo_button.setEnabled(False)
 
         # 초기화 버튼 비활성화
         self.reset_button.setEnabled(False)

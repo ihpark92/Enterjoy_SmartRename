@@ -102,6 +102,59 @@ def remove_text(file_infos: List[FileInfo], text_to_remove: str, position: str =
     return updated_infos
 
 
+def apply_custom_pattern(file_infos: List[FileInfo], pattern_template: str) -> List[FileInfo]:
+    """
+    사용자 정의 패턴을 모든 파일에 적용
+
+    Args:
+        file_infos: 파일 정보 리스트
+        pattern_template: 패턴 템플릿 (예: "제목_{number}화.zip")
+                         {number}: 권수
+                         {number:02d}: 2자리 패딩 권수
+                         {number:03d}: 3자리 패딩 권수
+
+    Returns:
+        업데이트된 파일 정보 리스트
+    """
+    import re
+
+    if not pattern_template:
+        return file_infos
+
+    # {number} 또는 {number:XXd} 패턴 찾기
+    number_pattern = re.compile(r'\{number(?::0(\d)d)?\}')
+
+    updated_infos = []
+
+    for file_info in file_infos:
+        new_info = copy.deepcopy(file_info)
+
+        # 권수 추출
+        if new_info.pattern and new_info.pattern.number:
+            number_str = new_info.pattern.number
+        else:
+            # 패턴이 없으면 스킵
+            updated_infos.append(new_info)
+            continue
+
+        # 패턴 템플릿에서 {number} 치환
+        def replace_number(match):
+            padding = match.group(1)
+            if padding:
+                # {number:02d} 형식
+                return number_str.zfill(int(padding))
+            else:
+                # {number} 형식
+                return number_str
+
+        new_name = number_pattern.sub(replace_number, pattern_template)
+        new_info.new_name = new_name
+
+        updated_infos.append(new_info)
+
+    return updated_infos
+
+
 def change_padding_width(file_infos: List[FileInfo], padding_width: int) -> List[FileInfo]:
     """
     모든 파일의 권수 자릿수를 변경
