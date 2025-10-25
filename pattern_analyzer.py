@@ -82,12 +82,18 @@ def extract_pattern(filename: str) -> FilePattern:
         title = name_without_bracket.strip()
         suffix = suffix_bracket if suffix_bracket else ""
 
+    # 원본 숫자의 자릿수 감지 (패딩 정보 보존)
+    padding_width = 2  # 기본값
+    if number and number.isdigit():
+        padding_width = len(number)  # 원본 자릿수 유지
+
     return FilePattern(
         prefix=prefix,
         title=title,
         number=number,
         suffix=suffix,
-        extension=extension
+        extension=extension,
+        padding_width=padding_width
     )
 
 

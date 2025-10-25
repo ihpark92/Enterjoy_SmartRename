@@ -32,11 +32,9 @@ class FilePattern:
         if self.number:
             # 숫자인 경우 padding_width만큼 0으로 패딩
             if self.number.isdigit():
-                # 이미 충분한 자릿수면 그대로, 부족하면 패딩
-                if len(self.number) < self.padding_width:
-                    number_suffix = self.number.zfill(self.padding_width)
-                else:
-                    number_suffix = self.number
+                # 숫자 값으로 변환 후 padding_width만큼 패딩 (항상 적용)
+                number_value = int(self.number)
+                number_suffix = str(number_value).zfill(self.padding_width)
             else:
                 number_suffix = self.number
         if self.suffix:

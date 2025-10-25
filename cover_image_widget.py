@@ -22,7 +22,7 @@ class CoverImageWidget(QLabel):
 
         # 초기 설정
         self.setMinimumSize(150, 200)  # 최소 크기
-        self.setMaximumWidth(400)  # 최대 너비 (너무 커지지 않게)
+        self.setMaximumWidth(500)  # 최대 너비 (표지를 더 크게)
         self.setAlignment(Qt.AlignCenter)
 
         # 스타일 설정

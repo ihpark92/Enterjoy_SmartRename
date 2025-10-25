@@ -1,10 +1,13 @@
 """
 파일명 일괄 변경 프로그램
 메인 애플리케이션 진입점
+Version: 0.9
 """
 import sys
 from PyQt5.QtWidgets import QApplication
 from main_window import MainWindow
+
+__version__ = "0.9"
 
 
 def main():

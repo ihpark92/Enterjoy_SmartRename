@@ -10,29 +10,21 @@ def apply_pattern(file_infos: List[FileInfo], template_pattern: FilePattern) -> 
     """
     선택한 패턴을 모든 파일에 적용
     각 파일의 번호는 유지하고, 나머지(prefix, title, suffix, extension)는 템플릿 것으로 대체
-    파일 개수가 100개 이상이면 3자리(001, 002, ...), 미만이면 2자리(01, 02, ...)로 패딩
     """
-    # 파일 개수에 따라 패딩 자릿수 결정
-    total_files = len(file_infos)
-    if total_files >= 100:
-        padding_width = 3
-    else:
-        padding_width = 2
-
     updated_infos = []
 
     for file_info in file_infos:
         new_info = copy.deepcopy(file_info)
 
         if file_info.pattern:
-            # 새 패턴 생성 (번호만 기존 것 유지, padding_width 적용)
+            # 새 패턴 생성 (번호만 기존 것 유지)
             new_pattern = FilePattern(
                 prefix=template_pattern.prefix,
                 title=template_pattern.title,
                 number=file_info.pattern.number,  # 기존 번호 유지
                 suffix=template_pattern.suffix,
                 extension=template_pattern.extension,
-                padding_width=padding_width  # 파일 개수에 따른 패딩
+                padding_width=template_pattern.padding_width  # 템플릿의 패딩 유지
             )
 
             new_info.pattern = new_pattern
@@ -81,6 +73,31 @@ def remove_text(file_infos: List[FileInfo], text_to_remove: str) -> List[FileInf
             new_info.pattern.prefix = new_info.pattern.prefix.replace(text_to_remove, "")
             new_info.pattern.title = new_info.pattern.title.replace(text_to_remove, "")
             new_info.pattern.suffix = new_info.pattern.suffix.replace(text_to_remove, "")
+
+        updated_infos.append(new_info)
+
+    return updated_infos
+
+
+def change_padding_width(file_infos: List[FileInfo], padding_width: int) -> List[FileInfo]:
+    """
+    모든 파일의 권수 자릿수를 변경
+    padding_width: 1, 2, 3 (예: 1 → "1", 2 → "01", 3 → "001")
+    """
+    if padding_width not in [1, 2, 3]:
+        return file_infos
+
+    updated_infos = []
+
+    for file_info in file_infos:
+        new_info = copy.deepcopy(file_info)
+
+        # 패턴이 있고 숫자가 있는 경우에만 적용
+        if new_info.pattern and new_info.pattern.number:
+            # 패딩 자릿수 변경
+            new_info.pattern.padding_width = padding_width
+            # 새 파일명 생성
+            new_info.new_name = new_info.pattern.to_filename()
 
         updated_infos.append(new_info)
 

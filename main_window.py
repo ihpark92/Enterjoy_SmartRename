@@ -6,7 +6,7 @@ import copy
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QRadioButton, QButtonGroup, QTableWidget, QTableWidgetItem,
-    QFileDialog, QLineEdit, QMessageBox, QHeaderView, QSplitter
+    QFileDialog, QLineEdit, QMessageBox, QHeaderView, QSplitter, QCheckBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -18,6 +18,7 @@ from file_renamer import apply_pattern, remove_text, add_text, execute_rename
 from file_system import get_files_in_folder, check_conflicts, validate_filename, get_first_archive_file
 from cover_image_widget import CoverImageWidget
 from image_loader import extract_cover_from_zip
+from preview_table_widget import PreviewTableWidget
 
 
 class MainWindow(QMainWindow):
@@ -31,12 +32,15 @@ class MainWindow(QMainWindow):
         # Undo 기능을 위한 히스토리 (이전 상태 저장)
         self.previous_file_infos: Optional[List[FileInfo]] = None
 
+        # 이미지 캐시 (파일 경로 -> PIL.Image)
+        self.image_cache = {}
+
         self.init_ui()
 
     def init_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("엔쪼 스마트리네임")
-        self.setGeometry(100, 100, 1200, 750)  # 너비 1000→1200으로 증가
+        self.setWindowTitle("Comic SmartRenamer")
+        self.setGeometry(100, 100, 1500, 900)  # 표지 500px 크기에 맞춘 윈도우 크기
 
         # 전체 폰트 설정 (개선 1: 맑은 고딕, 개선 2: 10pt)
         app_font = QFont("맑은 고딕", 10)
@@ -52,30 +56,80 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)  # 전체 여백 추가
         central_widget.setLayout(main_layout)
 
-        # 1. 폴더 선택 영역
-        folder_layout = QHBoxLayout()
-        folder_layout.setSpacing(10)  # 개선 5: 버튼과 레이블 간격
+        # 1. 폴더 선택 영역 (개선된 스타일)
+        folder_container = QWidget()
+        folder_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border: 2px solid #dee2e6;
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
 
-        self.folder_button = QPushButton("폴더 선택")
-        self.folder_button.setMinimumHeight(35)  # 버튼 높이 증가
+        folder_layout = QHBoxLayout()
+        folder_layout.setSpacing(12)
+        folder_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.folder_button = QPushButton("📁 폴더 선택")
+        self.folder_button.setMinimumHeight(40)
+        self.folder_button.setMinimumWidth(120)
+        self.folder_button.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        self.folder_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #1084d8;
+            }
+            QPushButton:pressed {
+                background-color: #006cc1;
+            }
+        """)
         self.folder_button.clicked.connect(self.select_folder)
 
         self.folder_label = QLabel("폴더를 선택하세요")
-        self.folder_label.setFont(QFont("맑은 고딕", 10))  # 폰트 명시 적용
-        self.folder_label.setStyleSheet("padding: 8px; background-color: #f0f0f0; border-radius: 3px;")
+        self.folder_label.setFont(QFont("맑은 고딕", 10))
+        self.folder_label.setStyleSheet("""
+            QLabel {
+                padding: 10px 15px;
+                background-color: white;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                color: #495057;
+            }
+        """)
 
         folder_layout.addWidget(self.folder_button)
-        folder_layout.addWidget(self.folder_label, 1)  # stretch factor
-        main_layout.addLayout(folder_layout, 0)  # stretch=0: 고정 크기
+        folder_layout.addWidget(self.folder_label, 1)
+        folder_container.setLayout(folder_layout)
+        main_layout.addWidget(folder_container, 0)
 
-        # 2. 이미지 + 컨텐츠 영역 (QSplitter 사용) - 가변 영역
+        # 2. 표지 미리보기 옵션 (Splitter 위에 배치)
+        preview_option_layout = QHBoxLayout()
+        preview_option_layout.setSpacing(10)
+
+        self.preview_all_covers_checkbox = QCheckBox("파일 선택 시 표지 미리보기")
+        self.preview_all_covers_checkbox.setFont(QFont("맑은 고딕", 10))
+        self.preview_all_covers_checkbox.setChecked(True)  # 기본값: 켜짐
+        self.preview_all_covers_checkbox.stateChanged.connect(self.on_preview_option_changed)
+
+        preview_option_layout.addWidget(self.preview_all_covers_checkbox)
+        preview_option_layout.addStretch()
+        main_layout.addLayout(preview_option_layout, 0)  # stretch=0: 고정 크기
+
+        # 3. 이미지 + 컨텐츠 영역 (QSplitter 사용) - 가변 영역
         content_splitter = QSplitter(Qt.Horizontal)
 
-        # 2-1. 왼쪽: 표지 이미지
+        # 3-1. 왼쪽: 표지 이미지
         self.cover_image_widget = CoverImageWidget()
         content_splitter.addWidget(self.cover_image_widget)
 
-        # 2-2. 오른쪽: 패턴 선택 + 미리보기 테이블
+        # 3-2. 오른쪽: 패턴 선택 + 미리보기 테이블
         right_widget = QWidget()
         right_layout = QVBoxLayout()
         right_layout.setSpacing(15)
@@ -83,19 +137,35 @@ class MainWindow(QMainWindow):
 
         # 패턴 선택 영역 (고정 크기)
         pattern_label = QLabel("검출된 패턴:")
-        pattern_label.setFont(QFont("맑은 고딕", 12, QFont.Bold))  # 제목 강조
+        pattern_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))  # 제목 강조
         right_layout.addWidget(pattern_label, 0)  # stretch=0: 고정
+
+        # 패턴 박스 컨테이너 (시각적 개선)
+        self.pattern_container = QWidget()
+        self.pattern_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border: 2px solid #dee2e6;
+                border-radius: 8px;
+                padding: 12px;
+            }
+        """)
 
         self.pattern_button_group = QButtonGroup()
         self.pattern_layout = QVBoxLayout()
-        right_layout.addLayout(self.pattern_layout, 0)  # stretch=0: 고정
+        self.pattern_layout.setSpacing(8)  # 버튼 간격
+        self.pattern_layout.setContentsMargins(5, 5, 5, 5)  # 내부 여백
+        self.pattern_container.setLayout(self.pattern_layout)
+
+        right_layout.addWidget(self.pattern_container, 0)  # stretch=0: 고정
 
         # 미리보기 테이블 (가변 크기)
         preview_label = QLabel("미리보기:")
-        preview_label.setFont(QFont("맑은 고딕", 12, QFont.Bold))  # 제목 강조
+        preview_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))  # 제목 강조
         right_layout.addWidget(preview_label, 0)  # stretch=0: 고정
 
-        self.preview_table = QTableWidget()
+        # 드래그 앤 드롭을 지원하는 커스텀 테이블 위젯 사용
+        self.preview_table = PreviewTableWidget()
         self.preview_table.setColumnCount(2)
         self.preview_table.setHorizontalHeaderLabels(["원본 파일명", "변경될 파일명"])
         self.preview_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -103,98 +173,309 @@ class MainWindow(QMainWindow):
         # 개선 3: 테이블 행 높이 증가
         self.preview_table.verticalHeader().setDefaultSectionSize(35)
 
+        # 테이블 선택 이벤트 연결
+        self.preview_table.itemClicked.connect(self.on_table_item_clicked)
+
+        # 드래그 앤 드롭 이벤트 연결
+        self.preview_table.folder_dropped.connect(self.on_folder_dropped)
+
         # 개선 4: 색상 대비 개선
         self.preview_table.setAlternatingRowColors(True)
-        self.preview_table.setStyleSheet("""
-            QTableWidget {
-                gridline-color: #d0d0d0;
-                selection-background-color: #0078d4;
-                selection-color: white;
-                alternate-background-color: #f5f5f5;
-            }
-            QHeaderView::section {
-                background-color: #e9e9e9;
-                padding: 8px;
-                border: 1px solid #d0d0d0;
-                font-weight: bold;
-            }
-        """)
 
         right_layout.addWidget(self.preview_table, 1)  # stretch=1: 가변 크기 (세로 확장)
 
         right_widget.setLayout(right_layout)
         content_splitter.addWidget(right_widget)
 
-        # Splitter 초기 크기 비율 설정 (1:5 = 이미지:컨텐츠)
-        content_splitter.setSizes([200, 1000])
+        # Splitter 초기 크기 비율 설정 (1:2 = 이미지:컨텐츠, 표지 500px 최대 크기)
+        content_splitter.setSizes([500, 1000])
 
         # Splitter를 메인 레이아웃에 추가 (가변 영역)
         main_layout.addWidget(content_splitter, 1)  # stretch=1: 세로 확장
 
-        # 3. 추가 편집 영역 (고정 크기)
-        edit_label = QLabel("추가 편집:")
-        edit_label.setFont(QFont("맑은 고딕", 12, QFont.Bold))  # 제목 강조
-        main_layout.addWidget(edit_label, 0)  # stretch=0: 고정 크기
+        # 4. 추가 편집 영역 (고정 크기)
+        edit_label = QLabel("⚙️ 추가 편집:")
+        edit_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        main_layout.addWidget(edit_label, 0)
 
-        # 3-1. 제거 기능
+        # 편집 영역 전체 컨테이너
+        edit_container = QWidget()
+        edit_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border: 2px solid #dee2e6;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+
+        edit_main_layout = QVBoxLayout()
+        edit_main_layout.setSpacing(12)
+        edit_main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 4-1. 자릿수 변경 기능 (박스)
+        digit_box = QWidget()
+        digit_box.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+
+        digit_layout = QHBoxLayout()
+        digit_layout.setSpacing(10)
+        digit_layout.setContentsMargins(0, 0, 0, 0)
+
+        digit_label = QLabel("📊 자릿수:")
+        digit_label.setMinimumWidth(80)
+        digit_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+
+        # 자릿수 선택 라디오 버튼
+        self.digit_button_group = QButtonGroup()
+        self.digit_1_radio = QRadioButton("1자리")
+        self.digit_2_radio = QRadioButton("2자리")
+        self.digit_3_radio = QRadioButton("3자리")
+
+        # 버튼 그룹에 추가
+        self.digit_button_group.addButton(self.digit_1_radio, 1)
+        self.digit_button_group.addButton(self.digit_2_radio, 2)
+        self.digit_button_group.addButton(self.digit_3_radio, 3)
+
+        # 초기에는 아무것도 선택하지 않음 (exclusive를 False로 설정)
+        self.digit_button_group.setExclusive(False)
+        self.digit_1_radio.setChecked(False)
+        self.digit_2_radio.setChecked(False)
+        self.digit_3_radio.setChecked(False)
+        self.digit_button_group.setExclusive(True)
+
+        # 라디오 버튼 선택 시 즉시 적용
+        self.digit_1_radio.toggled.connect(self.on_digit_changed)
+        self.digit_2_radio.toggled.connect(self.on_digit_changed)
+        self.digit_3_radio.toggled.connect(self.on_digit_changed)
+
+        # 라디오 버튼 폰트 설정
+        self.digit_1_radio.setFont(QFont("맑은 고딕", 10))
+        self.digit_2_radio.setFont(QFont("맑은 고딕", 10))
+        self.digit_3_radio.setFont(QFont("맑은 고딕", 10))
+
+        # 라디오 버튼 스타일
+        radio_style = """
+            QRadioButton {
+                spacing: 5px;
+                padding: 5px;
+                color: #212529;
+            }
+            QRadioButton::indicator {
+                width: 16px;
+                height: 16px;
+            }
+        """
+        self.digit_1_radio.setStyleSheet(radio_style)
+        self.digit_2_radio.setStyleSheet(radio_style)
+        self.digit_3_radio.setStyleSheet(radio_style)
+
+        # 설명 텍스트 추가
+        digit_hint_label = QLabel("💡 선택 시 즉시 적용됩니다")
+        digit_hint_label.setFont(QFont("맑은 고딕", 9))
+        digit_hint_label.setStyleSheet("color: #6c757d;")
+
+        digit_layout.addWidget(digit_label)
+        digit_layout.addWidget(self.digit_1_radio)
+        digit_layout.addWidget(self.digit_2_radio)
+        digit_layout.addWidget(self.digit_3_radio)
+        digit_layout.addWidget(digit_hint_label)
+        digit_layout.addStretch()
+
+        digit_box.setLayout(digit_layout)
+        edit_main_layout.addWidget(digit_box)
+
+        # 4-2. 제거 기능 (박스)
+        remove_box = QWidget()
+        remove_box.setObjectName("remove_box")
+        remove_box.setStyleSheet("""
+            QWidget#remove_box {
+                background-color: white;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+
         remove_layout = QHBoxLayout()
-        remove_layout.setSpacing(10)  # 개선 5: 간격
+        remove_layout.setSpacing(8)
+        remove_layout.setContentsMargins(0, 0, 0, 0)
 
-        remove_label = QLabel("제거:")
-        remove_label.setMinimumWidth(60)
+        remove_label = QLabel("🗑️ 제거:")
+        remove_label.setMinimumWidth(80)
+        remove_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
 
         self.remove_input = QLineEdit()
         self.remove_input.setPlaceholderText("제거할 텍스트 입력")
-        self.remove_input.setMinimumHeight(30)
-        self.remove_input.setMaximumHeight(30)  # 최대 높이 고정
+        self.remove_input.setMinimumHeight(35)
+        self.remove_input.setFont(QFont("맑은 고딕", 10))
+        self.remove_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                background-color: #ffffff;
+                color: #212529;
+            }
+            QLineEdit:focus {
+                border: 2px solid #0078d4;
+            }
+            QLineEdit::placeholder {
+                color: #495057;
+            }
+        """)
 
-        self.remove_button = QPushButton("적용")
-        self.remove_button.setMinimumHeight(30)
-        self.remove_button.setMaximumHeight(30)  # 최대 높이 고정
-        self.remove_button.setMinimumWidth(80)
+        self.remove_button = QPushButton("✓ 적용")
+        self.remove_button.setMinimumHeight(35)
+        self.remove_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.remove_button.clicked.connect(self.remove_text_action)
 
-        self.remove_undo_button = QPushButton("취소")
-        self.remove_undo_button.setMinimumHeight(30)
-        self.remove_undo_button.setMaximumHeight(30)  # 최대 높이 고정
-        self.remove_undo_button.setMinimumWidth(80)
-        self.remove_undo_button.setEnabled(False)  # 초기에는 비활성화
+        self.remove_undo_button = QPushButton("↩ 취소")
+        self.remove_undo_button.setMinimumHeight(35)
+        self.remove_undo_button.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+            QPushButton:disabled {
+                background-color: #e9ecef;
+                color: #adb5bd;
+            }
+        """)
+        self.remove_undo_button.setEnabled(False)
         self.remove_undo_button.clicked.connect(self.undo_action)
 
         remove_layout.addWidget(remove_label)
         remove_layout.addWidget(self.remove_input, 1)
         remove_layout.addWidget(self.remove_button)
         remove_layout.addWidget(self.remove_undo_button)
-        main_layout.addLayout(remove_layout, 0)  # stretch=0: 고정 크기
 
-        # 3-2. 추가 기능
+        remove_box.setLayout(remove_layout)
+        edit_main_layout.addWidget(remove_box)
+
+        # 4-3. 추가 기능 (박스)
+        add_box = QWidget()
+        add_box.setObjectName("add_box")
+        add_box.setStyleSheet("""
+            QWidget#add_box {
+                background-color: white;
+                border: 1px solid #ced4da;
+                border-radius: 6px;
+                padding: 12px;
+            }
+        """)
+
         add_layout = QHBoxLayout()
-        add_layout.setSpacing(10)  # 개선 5: 간격
+        add_layout.setSpacing(8)
+        add_layout.setContentsMargins(0, 0, 0, 0)
 
-        add_label = QLabel("추가:")
-        add_label.setMinimumWidth(60)
+        add_label = QLabel("➕ 추가:")
+        add_label.setMinimumWidth(80)
+        add_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
 
         self.add_input = QLineEdit()
         self.add_input.setPlaceholderText("추가할 텍스트 입력")
-        self.add_input.setMinimumHeight(30)
-        self.add_input.setMaximumHeight(30)  # 최대 높이 고정
+        self.add_input.setMinimumHeight(35)
+        self.add_input.setFont(QFont("맑은 고딕", 10))
+        self.add_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                background-color: #ffffff;
+                color: #212529;
+            }
+            QLineEdit:focus {
+                border: 2px solid #0078d4;
+            }
+            QLineEdit::placeholder {
+                color: #495057;
+            }
+        """)
 
         # 앞/뒤 선택
-        self.add_front_radio = QRadioButton("앞")
-        self.add_back_radio = QRadioButton("뒤")
+        self.add_front_radio = QRadioButton("⬅ 앞")
+        self.add_back_radio = QRadioButton("뒤 ➡")
         self.add_front_radio.setChecked(True)
+        self.add_front_radio.setFont(QFont("맑은 고딕", 10))
+        self.add_back_radio.setFont(QFont("맑은 고딕", 10))
+        self.add_front_radio.setStyleSheet(radio_style)
+        self.add_back_radio.setStyleSheet(radio_style)
 
-        self.add_button = QPushButton("적용")
-        self.add_button.setMinimumHeight(30)
-        self.add_button.setMaximumHeight(30)  # 최대 높이 고정
-        self.add_button.setMinimumWidth(80)
+        self.add_button = QPushButton("✓ 적용")
+        self.add_button.setMinimumHeight(35)
+        self.add_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.add_button.clicked.connect(self.add_text_action)
 
-        self.add_undo_button = QPushButton("취소")
-        self.add_undo_button.setMinimumHeight(30)
-        self.add_undo_button.setMaximumHeight(30)  # 최대 높이 고정
-        self.add_undo_button.setMinimumWidth(80)
-        self.add_undo_button.setEnabled(False)  # 초기에는 비활성화
+        self.add_undo_button = QPushButton("↩ 취소")
+        self.add_undo_button.setMinimumHeight(35)
+        self.add_undo_button.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+            QPushButton:disabled {
+                background-color: #e9ecef;
+                color: #adb5bd;
+            }
+        """)
+        self.add_undo_button.setEnabled(False)
         self.add_undo_button.clicked.connect(self.undo_action)
 
         add_layout.addWidget(add_label)
@@ -203,21 +484,38 @@ class MainWindow(QMainWindow):
         add_layout.addWidget(self.add_back_radio)
         add_layout.addWidget(self.add_button)
         add_layout.addWidget(self.add_undo_button)
-        main_layout.addLayout(add_layout, 0)  # stretch=0: 고정 크기
 
-        # 4. 하단 버튼 (고정 크기)
+        add_box.setLayout(add_layout)
+        edit_main_layout.addWidget(add_box)
+
+        # 편집 컨테이너 완성
+        edit_container.setLayout(edit_main_layout)
+        main_layout.addWidget(edit_container, 0)
+
+        # 5. 하단 실행 버튼 (고정 크기)
+        button_container = QWidget()
+        button_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+                border: 2px solid #dee2e6;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(15)  # 개선 5: 버튼 간격
+        button_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.execute_button = QPushButton("파일명 변경 실행")
-        self.execute_button.setMinimumHeight(40)
-        self.execute_button.setMaximumHeight(40)  # 최대 높이 고정
+        self.execute_button = QPushButton("🚀 파일명 변경 실행")
+        self.execute_button.setMinimumHeight(50)
+        self.execute_button.setFont(QFont("맑은 고딕", 11, QFont.Bold))
         self.execute_button.setStyleSheet("""
             QPushButton {
                 background-color: #0078d4;
                 color: white;
-                font-weight: bold;
-                border-radius: 3px;
+                border: none;
+                border-radius: 6px;
+                padding: 12px 24px;
             }
             QPushButton:hover {
                 background-color: #1084d8;
@@ -229,7 +527,8 @@ class MainWindow(QMainWindow):
         self.execute_button.clicked.connect(self.execute_rename_action)
 
         button_layout.addWidget(self.execute_button)
-        main_layout.addLayout(button_layout, 0)  # stretch=0: 고정 크기
+        button_container.setLayout(button_layout)
+        main_layout.addWidget(button_container, 0)
 
     def select_folder(self):
         """폴더 선택"""
@@ -239,6 +538,17 @@ class MainWindow(QMainWindow):
             self.current_folder = folder
             self.folder_label.setText(folder)
             self.load_files(folder)
+
+    def on_folder_dropped(self, folder_path: str):
+        """
+        드래그 앤 드롭으로 폴더가 선택되었을 때 호출
+
+        Args:
+            folder_path: 드롭된 폴더 경로
+        """
+        self.current_folder = folder_path
+        self.folder_label.setText(folder_path)
+        self.load_files(folder_path)
 
     def load_files(self, folder_path: str):
         """폴더의 파일 로드 및 패턴 분석"""
@@ -269,11 +579,57 @@ class MainWindow(QMainWindow):
         # 패턴 라디오 버튼 생성
         self.create_pattern_buttons()
 
+        # 자릿수 선택 초기화 (폴더 로드 시 선택 해제)
+        self.reset_digit_radio_buttons()
+
+        # 자릿수 선택 제한 적용
+        self.update_digit_radio_constraints()
+
         # 미리보기 업데이트
         self.refresh_preview()
 
         # 표지 이미지 로드
         self.load_cover_image(file_paths)
+
+    def reset_digit_radio_buttons(self):
+        """자릿수 라디오 버튼 선택 초기화"""
+        # exclusive를 False로 하여 모두 해제 가능하게 함
+        self.digit_button_group.setExclusive(False)
+        self.digit_1_radio.setChecked(False)
+        self.digit_2_radio.setChecked(False)
+        self.digit_3_radio.setChecked(False)
+        self.digit_button_group.setExclusive(True)
+
+    def update_digit_radio_constraints(self):
+        """파일 개수와 최대 권수에 따라 자릿수 라디오 버튼 활성화/비활성화"""
+        if not self.file_infos:
+            return
+
+        # 최대 권수 찾기
+        max_volume = 0
+        for file_info in self.file_infos:
+            if file_info.pattern and file_info.pattern.number:
+                if file_info.pattern.number.isdigit():
+                    volume = int(file_info.pattern.number)
+                    if volume > max_volume:
+                        max_volume = volume
+
+        # 최대 권수에 따라 라디오 버튼 활성화/비활성화
+        if max_volume >= 100:
+            # 100권 이상: 3자리만 가능
+            self.digit_1_radio.setEnabled(False)
+            self.digit_2_radio.setEnabled(False)
+            self.digit_3_radio.setEnabled(True)
+        elif max_volume >= 10:
+            # 10~99권: 2자리, 3자리 가능
+            self.digit_1_radio.setEnabled(False)
+            self.digit_2_radio.setEnabled(True)
+            self.digit_3_radio.setEnabled(True)
+        else:
+            # 9권 이하: 모든 자릿수 가능
+            self.digit_1_radio.setEnabled(True)
+            self.digit_2_radio.setEnabled(True)
+            self.digit_3_radio.setEnabled(True)
 
     def load_cover_image(self, file_paths: list):
         """
@@ -310,15 +666,33 @@ class MainWindow(QMainWindow):
             if widget:
                 widget.setParent(None)
 
-        # 파일 개수에 따른 패딩 자릿수 결정
-        total_files = len(self.file_infos)
-        padding_width = 3 if total_files >= 100 else 2
-
         # 새 버튼 생성
         for i, pattern in enumerate(self.representative_patterns):
-            # 패턴에 padding_width 설정
-            pattern.padding_width = padding_width
+            # 패턴의 원래 padding_width 사용 (자동 조정 안 함)
             radio = QRadioButton(str(pattern))
+            radio.setFont(QFont("맑은 고딕", 10))
+
+            # 라디오 버튼 스타일 개선
+            radio.setStyleSheet("""
+                QRadioButton {
+                    padding: 8px;
+                    spacing: 8px;
+                    background-color: white;
+                    border-radius: 6px;
+                }
+                QRadioButton:hover {
+                    background-color: #e9ecef;
+                }
+                QRadioButton:checked {
+                    background-color: #d3e5f7;
+                    font-weight: bold;
+                }
+                QRadioButton::indicator {
+                    width: 18px;
+                    height: 18px;
+                }
+            """)
+
             self.pattern_button_group.addButton(radio, i)
             self.pattern_layout.addWidget(radio)
 
@@ -335,6 +709,12 @@ class MainWindow(QMainWindow):
 
         # 선택한 패턴 적용
         self.file_infos = apply_pattern(self.file_infos, self.selected_pattern)
+
+        # 패턴 변경 시 자릿수 선택 초기화
+        self.reset_digit_radio_buttons()
+
+        # 자릿수 선택 제한 업데이트
+        self.update_digit_radio_constraints()
 
         # 미리보기 업데이트
         self.refresh_preview()
@@ -375,6 +755,29 @@ class MainWindow(QMainWindow):
         self.refresh_preview()
 
         QMessageBox.information(self, "완료", "이전 상태로 복원되었습니다.")
+
+    def on_digit_changed(self, checked):
+        """라디오 버튼 선택 시 즉시 적용"""
+        if not checked:  # 버튼이 해제될 때는 무시
+            return
+
+        if not self.file_infos:
+            return
+
+        # 선택한 자릿수 확인
+        if self.digit_1_radio.isChecked():
+            padding_width = 1
+        elif self.digit_2_radio.isChecked():
+            padding_width = 2
+        else:  # digit_3_radio
+            padding_width = 3
+
+        # 자릿수 변경 즉시 적용
+        from file_renamer import change_padding_width
+        self.file_infos = change_padding_width(self.file_infos, padding_width)
+
+        # 미리보기 업데이트
+        self.refresh_preview()
 
     def remove_text_action(self):
         """텍스트 제거"""
@@ -474,3 +877,61 @@ class MainWindow(QMainWindow):
                 "부분 완료",
                 f"성공: {success_count}개\n실패: {fail_count}개\n\n실패 내역:\n{error_messages}"
             )
+
+    def on_preview_option_changed(self, state):
+        """표지 미리보기 옵션 변경 시 호출"""
+        # 옵션이 꺼지면 첫 번째 파일의 표지로 되돌림
+        if state == 0:  # 체크 해제
+            if self.file_infos:
+                file_paths = [info.original_path for info in self.file_infos]
+                self.load_cover_image(file_paths)
+
+    def on_table_item_clicked(self, item):
+        """테이블 아이템 클릭 시 호출"""
+        # 옵션이 활성화되어 있지 않으면 무시
+        if not self.preview_all_covers_checkbox.isChecked():
+            return
+
+        # 선택된 행의 파일 정보 가져오기
+        row = item.row()
+        if row < 0 or row >= len(self.file_infos):
+            return
+
+        file_info = self.file_infos[row]
+        file_path = file_info.original_path
+
+        # ZIP 파일이 아니면 무시
+        if not file_path.lower().endswith('.zip'):
+            return
+
+        # 이미지 로드 (캐시 활용)
+        self.load_and_display_cover(file_path)
+
+    def load_and_display_cover(self, file_path: str):
+        """
+        파일의 표지 이미지를 로드하여 표시 (캐싱 사용)
+
+        Args:
+            file_path: ZIP 파일 경로
+        """
+        # 캐시 확인
+        if file_path in self.image_cache:
+            # 캐시에 있으면 즉시 표시
+            self.cover_image_widget.set_pil_image(self.image_cache[file_path])
+            return
+
+        # 캐시에 없으면 로드
+        try:
+            # 이미지 추출
+            img = extract_cover_from_zip(file_path, max_size=(500, 700))
+
+            # 캐시에 저장
+            self.image_cache[file_path] = img
+
+            # 표시
+            self.cover_image_widget.set_pil_image(img)
+
+        except Exception as e:
+            print(f"이미지 로드 실패: {file_path}, {e}")
+            # 실패 시 빈 화면
+            self.cover_image_widget.clear()
