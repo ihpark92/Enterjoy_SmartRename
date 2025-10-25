@@ -3,16 +3,19 @@
 """
 from PyQt5.QtWidgets import QTableWidget
 from PyQt5.QtCore import Qt, pyqtSignal
+from typing import List
 import os
 
 
 class PreviewTableWidget(QTableWidget):
     """
-    드래그 앤 드롭으로 폴더 선택을 지원하는 테이블 위젯
+    드래그 앤 드롭으로 폴더 또는 파일 선택을 지원하는 테이블 위젯
     """
 
     # 폴더가 드롭되었을 때 발생하는 시그널
     folder_dropped = pyqtSignal(str)
+    # 파일 목록이 드롭되었을 때 발생하는 시그널
+    files_dropped = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
@@ -65,18 +68,14 @@ class PreviewTableWidget(QTableWidget):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
 
-            # 첫 번째 항목이 폴더인지 확인
+            # URL이 있으면 드롭 허용 (폴더 또는 파일)
             if urls and len(urls) > 0:
-                path = urls[0].toLocalFile()
+                event.acceptProposedAction()
+                self.is_dragging = True
+                self.setStyleSheet(self.dragging_style)
+                return
 
-                if os.path.isdir(path):
-                    # 폴더면 드롭 허용
-                    event.acceptProposedAction()
-                    self.is_dragging = True
-                    self.setStyleSheet(self.dragging_style)
-                    return
-
-        # 폴더가 아니면 거부
+        # URL이 없으면 거부
         event.ignore()
 
     def dragMoveEvent(self, event):
@@ -100,12 +99,21 @@ class PreviewTableWidget(QTableWidget):
             urls = event.mimeData().urls()
 
             if urls and len(urls) > 0:
-                path = urls[0].toLocalFile()
+                # 모든 URL을 로컬 파일 경로로 변환
+                paths = [url.toLocalFile() for url in urls]
 
-                # 폴더인 경우에만 시그널 발생
-                if os.path.isdir(path):
-                    self.folder_dropped.emit(path)
+                # 첫 번째 항목이 폴더인지 확인
+                if os.path.isdir(paths[0]):
+                    # 폴더면 folder_dropped 시그널 발생
+                    self.folder_dropped.emit(paths[0])
                     event.acceptProposedAction()
                     return
+                else:
+                    # 파일이면 파일 목록만 필터링하여 files_dropped 시그널 발생
+                    file_paths = [p for p in paths if os.path.isfile(p)]
+                    if file_paths:
+                        self.files_dropped.emit(file_paths)
+                        event.acceptProposedAction()
+                        return
 
         event.ignore()
