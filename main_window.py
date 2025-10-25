@@ -234,7 +234,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(content_splitter, 1)  # stretch=1: 세로 확장
 
         # 4. 추가 편집 영역 (고정 크기)
-        edit_label = QLabel("⚙️ 추가 편집:")
+        edit_label = QLabel("추가 편집 :")
         edit_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         main_layout.addWidget(edit_label, 0)
 
@@ -424,6 +424,34 @@ class MainWindow(QMainWindow):
         remove_input_inner_layout.addWidget(self.remove_input, 1)
         remove_input_container.setLayout(remove_input_inner_layout)
 
+        # 전체/앞/뒤 선택
+        self.remove_all_radio = QRadioButton("전체")
+        self.remove_front_radio = QRadioButton("앞")
+        self.remove_back_radio = QRadioButton("뒤")
+        self.remove_all_radio.setChecked(True)  # 디폴트: 전체 제거
+        self.remove_all_radio.setFont(QFont("맑은 고딕", 10))
+        self.remove_front_radio.setFont(QFont("맑은 고딕", 10))
+        self.remove_back_radio.setFont(QFont("맑은 고딕", 10))
+        self.remove_all_radio.setStyleSheet(radio_style)
+        self.remove_front_radio.setStyleSheet(radio_style)
+        self.remove_back_radio.setStyleSheet(radio_style)
+
+        # 전체/앞/뒤 버튼을 하나의 위젯으로 묶어서 간격 조정
+        remove_position_widget = QWidget()
+        remove_position_widget.setStyleSheet("""
+            QWidget {
+                border: none;
+                background: transparent;
+            }
+        """)
+        remove_position_layout = QHBoxLayout()
+        remove_position_layout.setSpacing(2)
+        remove_position_layout.setContentsMargins(0, 0, 0, 0)
+        remove_position_layout.addWidget(self.remove_all_radio)
+        remove_position_layout.addWidget(self.remove_front_radio)
+        remove_position_layout.addWidget(self.remove_back_radio)
+        remove_position_widget.setLayout(remove_position_layout)
+
         self.remove_button = QPushButton("✔️ 적용")
         self.remove_button.setMinimumHeight(35)
         self.remove_button.setStyleSheet("""
@@ -470,6 +498,7 @@ class MainWindow(QMainWindow):
         self.remove_undo_button.clicked.connect(self.undo_remove_action)
 
         remove_layout.addWidget(remove_input_container, 1)
+        remove_layout.addWidget(remove_position_widget)
         remove_layout.addWidget(self.remove_button)
         remove_layout.addWidget(self.remove_undo_button)
 
@@ -989,8 +1018,16 @@ class MainWindow(QMainWindow):
         # 이전 상태 저장
         self.previous_file_infos_remove = copy.deepcopy(self.file_infos)
 
+        # 위치 선택에 따라 position 결정
+        if self.remove_all_radio.isChecked():
+            position = "all"
+        elif self.remove_front_radio.isChecked():
+            position = "front"
+        else:  # self.remove_back_radio.isChecked()
+            position = "back"
+
         # 텍스트 제거 적용
-        self.file_infos = remove_text(self.file_infos, text)
+        self.file_infos = remove_text(self.file_infos, text, position)
 
         # 제거 취소 버튼만 활성화
         self.remove_undo_button.setEnabled(True)

@@ -35,10 +35,15 @@ def apply_pattern(file_infos: List[FileInfo], template_pattern: FilePattern) -> 
     return updated_infos
 
 
-def remove_text(file_infos: List[FileInfo], text_to_remove: str) -> List[FileInfo]:
+def remove_text(file_infos: List[FileInfo], text_to_remove: str, position: str = "all") -> List[FileInfo]:
     """
     모든 파일명에서 특정 텍스트 제거
     사용자가 입력한 공백도 포함하여 정확히 제거
+
+    Args:
+        file_infos: 파일 정보 리스트
+        text_to_remove: 제거할 텍스트
+        position: "all" (모든 문구), "front" (첫 번째만), "back" (마지막만)
     """
     if not text_to_remove:
         return file_infos
@@ -55,8 +60,17 @@ def remove_text(file_infos: List[FileInfo], text_to_remove: str) -> List[FileInf
             name_part = new_info.new_name
             ext_part = ""
 
-        # new_name에서 텍스트 제거 (사용자 입력 공백 포함)
-        name_part = name_part.replace(text_to_remove, "")
+        # 위치에 따라 텍스트 제거
+        if position == "front":
+            # 첫 번째 문구만 제거
+            name_part = name_part.replace(text_to_remove, "", 1)
+        elif position == "back":
+            # 마지막 문구만 제거
+            parts = name_part.rsplit(text_to_remove, 1)
+            name_part = "".join(parts)
+        else:  # "all"
+            # 모든 문구 제거 (기존 동작)
+            name_part = name_part.replace(text_to_remove, "")
 
         # 중복 공백 제거 (연속된 공백을 하나로)
         import re
@@ -68,11 +82,20 @@ def remove_text(file_infos: List[FileInfo], text_to_remove: str) -> List[FileInf
         else:
             new_info.new_name = name_part
 
-        # 패턴도 업데이트
+        # 패턴도 업데이트 (position에 따라)
         if new_info.pattern:
-            new_info.pattern.prefix = new_info.pattern.prefix.replace(text_to_remove, "")
-            new_info.pattern.title = new_info.pattern.title.replace(text_to_remove, "")
-            new_info.pattern.suffix = new_info.pattern.suffix.replace(text_to_remove, "")
+            if position == "front":
+                new_info.pattern.prefix = new_info.pattern.prefix.replace(text_to_remove, "", 1)
+                new_info.pattern.title = new_info.pattern.title.replace(text_to_remove, "", 1)
+                new_info.pattern.suffix = new_info.pattern.suffix.replace(text_to_remove, "", 1)
+            elif position == "back":
+                new_info.pattern.prefix = "".join(new_info.pattern.prefix.rsplit(text_to_remove, 1))
+                new_info.pattern.title = "".join(new_info.pattern.title.rsplit(text_to_remove, 1))
+                new_info.pattern.suffix = "".join(new_info.pattern.suffix.rsplit(text_to_remove, 1))
+            else:  # "all"
+                new_info.pattern.prefix = new_info.pattern.prefix.replace(text_to_remove, "")
+                new_info.pattern.title = new_info.pattern.title.replace(text_to_remove, "")
+                new_info.pattern.suffix = new_info.pattern.suffix.replace(text_to_remove, "")
 
         updated_infos.append(new_info)
 
